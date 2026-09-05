@@ -54,6 +54,9 @@ for arg in "$@"; do
 done
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Diretório da skill à qual ESTE script pertence. Serve de guarda-corpo no import:
+# prepare-harness é o bootstrap do harness e não pode se trocar no meio do próprio run.
+SELF_SKILL="$(cd "$SCRIPT_DIR/.." 2>/dev/null && pwd || echo "")"
 
 # Um repo inacessível (privado sem permissão, URL errada, host fora do ar) faz o
 # git PEDIR usuário e senha no stdin — num script isso não falha, trava para
@@ -347,6 +350,17 @@ import_skills() {
       target="$ROOT/catalog/skills/$skname"
       # guarda-corpo: só mexe dentro de catalog/skills, nunca em outro caminho
       case "$target" in "$ROOT/catalog/skills/"?*) ;; *) continue ;; esac
+      # guarda-corpo de bootstrap: nunca sobrescrever a skill que está executando
+      # este script. Quem levanta o harness não pode se trocar no meio do próprio
+      # run — sobra uma árvore que ninguém verificou, e a edição local some sem
+      # aviso. Só o Unix (rm desvincula, o fd segue no inode antigo) evita o
+      # desastre, e isso é acidente, não desenho. Atualizar o bootstrap é ato
+      # deliberado: scaffold-harness.sh --force.
+      if [ -n "$SELF_SKILL" ] && [ "$target" = "$SELF_SKILL" ]; then
+        say "    ~ $skname — é a skill que está rodando este script; não me sobrescrevo"
+        say "      (para atualizar o bootstrap: scaffold-harness.sh --force, a partir do repo de origem)"
+        n_skip=$((n_skip+1)); continue
+      fi
       origin="$url#${sk#$dest/}"
       marker="$target/.vendored-from"
 

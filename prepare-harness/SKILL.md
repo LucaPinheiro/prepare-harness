@@ -154,6 +154,26 @@ Do `scaffold-harness.sh`: `--force`, `--no-skill-copy`.
 Depois do setup, a escalação é sua: `./bin/harness skills` mostra titulares × banco,
 `activate`/`deactivate` promovem e devolvem.
 
+## O bootstrap não se atualiza sozinho
+
+`prepare-harness` é a skill que levanta o harness, então ela é a única que precisa
+existir **antes** de qualquer import rodar. Quem a entrega é o `scaffold`, que a
+copia para `catalog/skills/prepare-harness` **sem** marcador `.vendored-from` — ou
+seja, como skill do time, que o import é proibido de tocar.
+
+**Não coloque o repo desta skill em `skill_repos`.** Parece tentador (é um repo
+git com skills dentro, como qualquer outro), mas cria um ciclo: o import
+sobrescreveria, no meio da execução, o próprio script que está executando. Na
+prática o run sobrevive — o `rm` desvincula o arquivo e o shell continua lendo o
+inode antigo — mas isso é acidente do Unix, não desenho, e qualquer edição local
+na pasta some sem aviso.
+
+O script se protege sozinho: ao encontrar no catálogo a skill da qual ele próprio
+faz parte, pula com `~ <skill> — é a skill que está rodando este script; não me
+sobrescrevo`. Para atualizar o bootstrap de verdade, rode o `scaffold-harness.sh
+--force` a partir do repo de origem — ato deliberado, que é o certo para a peça
+que levanta todas as outras.
+
 Comece por `--dry-run` quando o harness for de outra pessoa: ele imprime cada
 clone, plugin e comando `post_clone` que seria executado, sem tocar em nada.
 
