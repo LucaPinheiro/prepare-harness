@@ -88,7 +88,8 @@ preencha os TODO" seria entregar meio serviço.
 bash catalog/skills/prepare-harness/scripts/prepare-harness.sh
 ```
 
-**Harness novo** — três passos, sem devolver a lição de casa pra pessoa:
+**Harness novo** — quatro passos, sem devolver a lição de casa pra pessoa (só o
+último depende de uma resposta dela):
 
 ```bash
 # 1. esqueleto
@@ -98,38 +99,52 @@ bash <caminho-da-skill>/scripts/scaffold-harness.sh .
 **2. preencha os arquivos** com o Edit/Write, na ordem abaixo. Tire os fatos, nesta
 prioridade: (a) o que a pessoa já disse na conversa; (b) o próprio repo — `git
 remote -v`, README, `.mcp.json` e `.claude/settings.json` que já existam;
-(c) uma pergunta objetiva, só para o que sobrar. O que costuma sobrar é pouco:
-**a org/grupo e quais repos entram**. O resto tem default sensato — deixe
-`mcp/servers.json` e `catalog/plugins/plugins.json` com tudo `enabled: false` se
-ninguém pediu nada, porque um MCP quebrado no `.mcp.json` atrapalha mais que um
-MCP ausente.
+(c) uma pergunta objetiva, só para o que sobrar. O resto tem default sensato —
+deixe `mcp/servers.json` e `catalog/plugins/plugins.json` com tudo
+`enabled: false` se ninguém pediu nada, porque um MCP quebrado no `.mcp.json`
+atrapalha mais que um MCP ausente.
 
-> **A org é sempre pergunta, nunca dedução.** Não infira a org de `gh api
-> user/orgs`, `gh org list`, do e-mail da pessoa, do nome de outras skills
-> carregadas nem de qualquer sinal de contexto — e não rode `gh repo list` em org
-> nenhuma antes de a pessoa nomear qual é. Uma org errada enche o registry de
-> repos de outro cliente e o `prepare` clona todos. Se a org não estiver na
-> conversa nem no `git remote -v` deste repo, **pare e pergunte**: "qual org/grupo
-> git é a deste harness?".
+**O registry é a exceção e não se preenche aqui.** Deixe
+`workspace/repositories.md` com as tabelas vazias, como o scaffold entregou, e
+siga. Os repos entram no passo 4, no fim, e só pela mão da pessoa.
 
 | Arquivo | Preencha com |
 |---|---|
-| `harness.config.yaml` | `name`, `tools`, `repo_filter` (a org), `skill_repos`, `post_clone` |
-| `workspace/repositories.md` | uma linha de tabela por repo — nome, descrição de 1 linha, URL |
+| `harness.config.yaml` | `name`, `tools`, `skill_repos`, `post_clone` (o `repo_filter` só quando ela já tiver dado os links) |
+| `workspace/repositories.md` | **nada agora** — fica vazio até o passo 4 |
 | `mcp/servers.json` | só o que a pessoa usa de fato; o resto `enabled: false` |
 | `catalog/plugins/plugins.json` | o `oh-my-claudecode@omc` já vem ligado; apague a entrada `TODO-` se não for usar |
 | `AGENTS.md` | só a seção **TODO** do fim (contexto de negócio, convenções, specs, PR); o resto do arquivo já é o padrão de harness |
-
-**Depois que a pessoa nomear a org** — e só depois — com o `gh` autenticado,
-`gh repo list <org-confirmada> --limit 100 --json name,description,url` monta a
-tabela inteira do registry de uma vez. Mostre a lista antes de gravar: quem
-nomeou a org nem sempre quer os 100 repos dela.
 
 ```bash
 # 3. conferir e executar
 ./bin/harness doctor          # lista o que ainda tem TODO
 bash catalog/skills/prepare-harness/scripts/prepare-harness.sh
 ```
+
+**4. no fim, pergunte quais repos entram** — e pergunte de verdade, sem lista pronta.
+
+> **Nunca sugira repos.** Não rode `gh repo list`, `gh api user/repos`,
+> `gh org list` nem equivalente para montar opções; não infira a org do e-mail da
+> pessoa, de outras skills carregadas ou de qualquer sinal de contexto; e não
+> ofereça conjuntos prontos — "stack agêntica", "tudo de 2026", "os 5 mais
+> recentes" e afins estão fora. Enumerar a conta de alguém troca uma decisão dela
+> por uma curadoria sua, e a curadoria erra: repo arquivado, repo de cliente, fork
+> de terceiro — todos viram clone em `workspace/` sem ninguém ter pedido.
+
+Faça **uma** pergunta aberta e espere a resposta:
+
+> Quais repositórios devem entrar no registry deste harness?
+> Me manda os links (um por linha). Se não for nenhum agora, tudo bem — dá pra
+> adicionar depois a qualquer momento.
+
+"Nenhum" é resposta completa e final: harness com registry vazio funciona, e o
+`prepare-harness.sh` roda sem clonar nada. Para cada link recebido, grave uma
+linha de tabela em `workspace/repositories.md` e rode o `prepare-harness.sh` de
+novo — o clone é a única etapa que muda.
+
+Buscar a descrição de um repo que a pessoa **já escolheu** é preencher, não
+sugerir: `gh repo view <owner/repo> --json description` resolve a coluna do meio.
 
 Flags do `prepare-harness.sh`: `--scaffold`, `--no-sync`, `--dry-run`, `--list`, `--no-pull`,
 `--no-plugins`, `--no-skill-repos`, `--keep-vendor`, `--no-skills`, `--no-mcp`, `--no-clone`,
@@ -149,10 +164,12 @@ arquivos pendentes. O essencial:
 
 - `harness.config.yaml` → `name`, `tools`, `repo_filter`, `skill_repos` (a biblioteca de
   skills do time), `post_clone`.
-- `workspace/repositories.md` → a tabela de repos. Aceita qualquer host git (GitHub,
-  GitLab, Bitbucket, self-hosted), HTTPS ou SSH. Só casa URLs `host/owner/repo`, então
-  link de documentação com mais segmentos não vira clone por engano. Se o registry
-  citar links que não são repos, restrinja com `repo_filter`.
+- `workspace/repositories.md` → a tabela de repos, montada **só com os links que a
+  pessoa mandar** (ver passo 4). Aceita qualquer host git (GitHub, GitLab, Bitbucket,
+  self-hosted), HTTPS ou SSH. Só casa URLs `host/owner/repo`, então link de
+  documentação com mais segmentos não vira clone por engano. Se o registry citar
+  links que não são repos, restrinja com `repo_filter`. Vazio é um estado válido:
+  nada a clonar é diferente de setup incompleto.
 - `mcp/servers.json` → `enabled: true/false` por server. Segredos ficam em `${VAR}`.
 - `catalog/plugins/plugins.json` → o nome do marketplace precisa bater com o campo
   `name` do `marketplace.json` do repo de origem, não com o nome do repo.

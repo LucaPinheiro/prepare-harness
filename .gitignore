@@ -5,3 +5,7 @@
 # Config local da máquina, não do repo.
 settings.json
 **/settings.json
+
+# Marcador local do import de skills — artefato do harness, não do repo de origem.
+.vendored-from
+**/.vendored-from

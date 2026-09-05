@@ -1,0 +1,26 @@
+# >>> harness (prepare-harness) >>>
+# Projeções geradas por `./bin/harness sync` — a fonte canônica é catalog/, agents/,
+# mcp/ e harness.config.yaml. Editar aqui não sobrevive ao próximo sync.
+.mcp.json
+.claude/skills/
+.claude/agents/
+.devin/
+
+# Segredos e overrides locais da máquina.
+*.local.json
+.claude/settings.local.json
+.env
+.env.*
+
+# Clones dos repos da workspace: repositórios independentes, versionados neles
+# mesmos. Só o registry e o .gitkeep ficam.
+@@WORKSPACE@@/*
+!@@WORKSPACE@@/.gitkeep
+!@@REGISTRY@@
+
+# Staging efêmero do import de skills (o que vale é a cópia em catalog/skills).
+@@VENDOR@@/
+
+# Estado de sessão do Claude Code / OMC.
+.omc/
+# <<< harness (prepare-harness) <<<
