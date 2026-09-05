@@ -1,0 +1,89 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Perfil canônico deste harness. `bin/harness sync` e a skill `prepare-harness`
+# leem daqui. Tudo que está marcado com TODO precisa da sua mão.
+#
+# Formato: YAML "simples" de propósito (escalares e listas de uma linha) — os
+# scripts leem com awk, sem dependência de PyYAML.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Nome do harness. Aparece no `doctor` e serve só pra identificação.
+name: TODO-nome-do-harness            # TODO
+
+# CLIs que recebem a projeção do conteúdo canônico (catalog/, agents/, mcp/).
+# Suportados: claude, devin. Remova o que não usar.
+tools:
+  - claude
+
+# ─── workspace ───────────────────────────────────────────────────────────────
+# Onde os repos clonados ficam e qual arquivo lista as URLs.
+workspace_dir: workspace
+registry: workspace/repositories.md
+
+# Protocolo de clone pros hosts que não são github.com (o github usa `gh` quando
+# disponível, que resolve auth de repo privado sozinho). https | ssh
+clone_protocol: https
+
+# Filtro opcional de extração: só URLs cujo prefixo bata com uma destas entradas
+# viram clone. Vazio = qualquer URL git encontrada no registry.
+# Use isto se o registry também cita links que NÃO são repositórios.
+repo_filter:
+  # - github.com/TODO-sua-org         # TODO
+  # - gitlab.com/TODO-seu-grupo
+
+# ─── projeção pros CLIs ──────────────────────────────────────────────────────
+# A escalação. `catalog/skills/` é o elenco inteiro — o banco de reservas, onde
+# toda skill importada fica disponível sem custo nenhum. Só o que estiver listado
+# aqui vira titular: o `sync` linka em .claude/skills e o agente passa a enxergar.
+#
+# Por que não ativar tudo: cada titular carrega nome + descrição em TODA sessão,
+# gastando contexto mesmo quando não é usado. Escalar é decisão de engenharia,
+# tomada por projeto — não um default.
+#
+#   ./bin/harness skills               vê o elenco: quem é titular e quem está no banco
+#   ./bin/harness activate <skill>…    promove (e projeta)
+#   ./bin/harness deactivate <skill>…  manda pro banco (a skill continua no catálogo)
+#
+# "*" ativa o elenco inteiro — atalho consciente, não recomendado como padrão.
+active_skills:
+  - prepare-harness
+
+# Sub-agentes de agents/<nome>/AGENT.md que o `sync` linka em .claude/agents.
+active_agents:
+
+# ─── skills vindas de repositórios git ───────────────────────────────────────
+# Cada repo é clonado (--depth 1) em skills_vendor_dir, TODA pasta com SKILL.md
+# dentro dele é copiada para catalog/skills/<nome> e o clone é APAGADO em seguida.
+# Ou seja: o que fica no harness é a biblioteca canônica, versionada com ele —
+# quem clonar o harness recebe as skills sem rede e sem checkout git pendurado
+# dentro do catálogo. Rodar prepare-harness de novo re-clona e atualiza do upstream.
+#
+# As cópias carregam um marcador `.vendored-from`: é ele que autoriza a
+# atualização automática e protege as skills escritas pelo próprio time — sem
+# marcador, o import não toca no diretório.
+skill_repos:
+  - https://github.com/LucaPinheiro/personal-skills
+
+# Staging efêmero dos clones de skills: criado, usado e removido no mesmo run
+# (`--keep-vendor` preserva, pra debug). NÃO é versionado (ver .gitignore) —
+# o que vale é a cópia em catalog/skills.
+skills_vendor_dir: catalog/skills-vendor
+
+# ─── pacotes de skills do ecossistema público (npx skills add) ───────────────
+# Alternativa ao skill_repos para skills publicadas no registry do `skills` CLI.
+# Vazio = etapa pulada. Aceita "owner/repo" ou a URL completa.
+skills_sources:
+  # - https://github.com/TODO-sua-org/skills     # TODO
+
+# Escopo da instalação: project (grava skills-lock.json no repo) | global (~/.claude)
+skills_scope: project
+
+# ─── pós-clone ───────────────────────────────────────────────────────────────
+# Comandos rodados DENTRO de cada repo da workspace, depois do clone/pull.
+# Formato de cada item (string única, campos separados por " | "):
+#   "<comando> | requires=<binário> | if_exists=<path relativo ao repo>"
+#   - requires:  pula sem falhar se o binário não estiver no PATH
+#   - if_exists: só roda nos repos que já tenham aquele arquivo/diretório
+post_clone:
+  # - "graphify hook install | requires=graphify | if_exists=graphify-out"
+  # - "uv sync | requires=uv | if_exists=pyproject.toml"
+  # - "pnpm install --frozen-lockfile | requires=pnpm | if_exists=pnpm-lock.yaml"

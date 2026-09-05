@@ -1,0 +1,7 @@
+# Estado de sessão do Claude Code / OMC — não é conteúdo da skill.
+.omc/
+**/.omc/
+
+# Config local da máquina, não do repo.
+settings.json
+**/settings.json

@@ -1,0 +1,36 @@
+{
+  "_note": "Fonte canônica dos MCP servers deste harness. `bin/render_mcp.py` projeta os `enabled` em ./.mcp.json (project-scope do Claude Code) e em .devin/config.json. Credenciais NUNCA moram aqui: use ${VAR} e exporte no ambiente, ou um *.local.json fora do versionamento.",
+  "servers": {
+    "playwright": {
+      "transport": "stdio",
+      "command": "npx",
+      "args": ["-y", "@playwright/mcp@latest"],
+      "auth": "none",
+      "enabled": true,
+      "purpose": "Automação de browser: E2E, verificação visual de UI, extração de página. Sobe sob demanda via npx (precisa de Node). Se você já tem o Playwright MCP em escopo de usuário, isto aqui é redundante — deixe enabled:false."
+    },
+    "context7": {
+      "transport": "http",
+      "url": "https://mcp.context7.com/mcp",
+      "auth": "none",
+      "enabled": true,
+      "purpose": "Documentação atualizada de bibliotecas antes de sugerir API. Sem chave no plano free. Redundante se já estiver em escopo de usuário."
+    },
+    "EXEMPLO-http-server": {
+      "transport": "http",
+      "url": "https://EXEMPLO.example.com/mcp",
+      "auth": "oauth",
+      "enabled": false,
+      "purpose": "EXEMPLO ((ex.: Linear, Notion, Sentry). auth=oauth pede autenticação interativa na 1ª conexão: /mcp → authenticate."
+    },
+    "EXEMPLO-stdio-server": {
+      "transport": "stdio",
+      "command": "npx",
+      "args": ["-y", "EXEMPLO-pacote-mcp"],
+      "env": { "EXEMPLO_TOKEN": "${EXEMPLO_TOKEN}" },
+      "auth": "pat",
+      "enabled": false,
+      "purpose": "EXEMPLO. Com auth=pat o processo sobe mesmo sem a env, mas as chamadas falham — deixe enabled:false até ter o token."
+    }
+  }
+}

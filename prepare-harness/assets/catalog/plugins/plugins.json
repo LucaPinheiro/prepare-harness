@@ -1,0 +1,19 @@
+{
+  "_note": "Fonte canônica dos plugins do Claude Code deste harness. `bin/harness sync` projeta isto em .claude/settings.json (extraKnownMarketplaces + enabledPlugins) e a skill prepare-harness instala de fato via `claude plugin` CLI. ATENÇÃO: a chave de cada plugin é <plugin>@<marketplace>, e <marketplace> é o campo `name` do .claude-plugin/marketplace.json do repo de origem — não o nome do repo (ex.: Yeachan-Heo/oh-my-claudecode declara name=omc).",
+  "marketplaces": {
+    "omc": {
+      "source": "github",
+      "repo": "Yeachan-Heo/oh-my-claudecode"
+    }
+  },
+  "plugins": {
+    "oh-my-claudecode@omc": {
+      "enabled": true,
+      "purpose": "Orquestração multi-agente (Team/Autopilot/Ultrawork/Ralph) + agentes especializados de review, debug e planejamento. Padrão do harness base."
+    },
+    "EXEMPLO-plugin@EXEMPLO-marketplace": {
+      "enabled": false,
+      "purpose": "EXEMPLO: modelo de entrada. Preencha ou apague."
+    }
+  }
+}

@@ -1,0 +1,314 @@
+#!/usr/bin/env bash
+# harness — projeta o conteúdo canônico deste harness pros CLIs (Claude Code, Devin CLI),
+# escala quais skills ficam ativas e diagnostica o estado. Fonte: harness.config.yaml.
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+CFG="$ROOT/harness.config.yaml"
+cd "$ROOT"
+
+[ -f "$CFG" ] || { echo "✗ harness.config.yaml não encontrado em $ROOT"; exit 1; }
+
+# --- leitura de YAML "simples" (listas de uma linha e escalares) -------------
+# Deliberadamente sem PyYAML: o harness precisa rodar numa máquina recém-formatada.
+yaml_list() { # $1=chave
+  awk -v k="$1" '
+    $0 ~ "^"k":[[:space:]]*$" {f=1; next}
+    f && /^[[:space:]]*#/ {next}
+    f && /^[[:space:]]*-[[:space:]]/ {
+      sub(/^[[:space:]]*-[[:space:]]*/,""); sub(/[[:space:]]*#.*/,"");
+      gsub(/^["'"'"']|["'"'"']$/,""); print; next
+    }
+    f && /^[^[:space:]#]/ {f=0}
+  ' "$CFG"
+}
+yaml_scalar() { # $1=chave $2=default
+  local v
+  v="$(awk -v k="$1" '$0 ~ "^"k":[[:space:]]" {sub(/^[^:]*:[[:space:]]*/,""); sub(/[[:space:]]*#.*/,""); gsub(/^["'"'"']|["'"'"']$/,""); print; exit}' "$CFG")"
+  [ -n "$v" ] && echo "$v" || echo "${2:-}"
+}
+
+# `catalog/skills/` é o elenco inteiro; `active_skills` é a escalação. "*" promove
+# todo mundo — expandir aqui (e não no laço) evita que o shell trate o `*` como
+# glob de arquivos.
+expand_skills() {
+  local raw; raw="$(yaml_list active_skills)"
+  case "$raw" in
+    *'*'*) ls -1 catalog/skills 2>/dev/null | grep -v '^\.' || true ;;
+    *)     echo "$raw" ;;
+  esac
+}
+
+skill_origin() { # $1=nome — de onde a skill veio
+  [ -f "catalog/skills/$1/.vendored-from" ] && echo "importada" || echo "do time"
+}
+
+# ── sync ─────────────────────────────────────────────────────────────────────
+# Tirar do time também é projeção: um link que aponta pro catálogo mas saiu de
+# active_skills precisa sumir, senão "desativar" não teria efeito nenhum e o
+# contexto continuaria sendo pago em toda sessão.
+prune_links() { # $1=diretório de skills projetadas  $2=ativas
+  local dir="$1" ativas="$2" l base
+  [ -d "$dir" ] || return 0
+  for l in "$dir"/*; do
+    [ -L "$l" ] || continue
+    case "$(readlink "$l")" in */catalog/skills/*) ;; *) continue ;; esac
+    base="$(basename "$l")"
+    case " $(echo $ativas) " in *" $base "*) continue ;; esac
+    rm -f "$l"; echo "  - $base (saiu do time)"
+  done
+}
+
+cmd_sync() {
+  local tools skills agents
+  tools=$(yaml_list tools); skills=$(expand_skills); agents=$(yaml_list active_agents)
+
+  # contrato compartilhado: um arquivo, dois CLIs
+  if [ -f AGENTS.md ]; then
+    if [ -e CLAUDE.md ] && [ ! -L CLAUDE.md ]; then
+      echo "  ! CLAUDE.md é um arquivo real — deixando como está (o symlink pro AGENTS.md não foi criado)"
+    else
+      ln -sfn AGENTS.md CLAUDE.md; echo "  CLAUDE.md -> AGENTS.md"
+    fi
+  fi
+
+  for tool in $tools; do
+    case "$tool" in
+      claude)
+        mkdir -p .claude/skills .claude/agents
+        for s in $skills; do
+          [ -d "catalog/skills/$s" ] || { echo "  ! $s: não existe em catalog/skills"; continue; }
+          ln -sfn "../../catalog/skills/$s" ".claude/skills/$s"
+        done
+        prune_links .claude/skills "$skills"
+        for a in $agents; do ln -sfn "../../agents/$a/AGENT.md" ".claude/agents/$a.md"; done
+        local projected=".claude/skills/* .claude/agents/*"
+        if [ -f mcp/servers.json ]; then
+          python3 bin/render_mcp.py mcp/servers.json claude --out .mcp.json
+          projected="$projected .mcp.json"
+        fi
+        if [ -f catalog/plugins/plugins.json ]; then
+          python3 bin/render_plugins.py catalog/plugins/plugins.json \
+            $([ -f mcp/servers.json ] && echo mcp/servers.json) --out .claude/settings.json
+          projected="$projected .claude/settings.json"
+        fi
+        echo "  claude:  $projected"
+        ;;
+      devin)
+        mkdir -p .devin/skills .devin/agents
+        for s in $skills; do
+          [ -d "catalog/skills/$s" ] || continue
+          ln -sfn "../../catalog/skills/$s" ".devin/skills/$s"
+        done
+        prune_links .devin/skills "$skills"
+        for a in $agents; do
+          mkdir -p ".devin/agents/$a"
+          ln -sfn "../../../agents/$a/AGENT.md" ".devin/agents/$a/AGENT.md"
+        done
+        [ -f mcp/servers.json ] && python3 bin/render_mcp.py mcp/servers.json devin --out .devin/config.json
+        echo "  devin:   .devin/skills/* .devin/agents/* .devin/config.json"
+        ;;
+      *) echo "  (tool desconhecido: $tool — pulando)";;
+    esac
+  done
+  echo "sync ok."
+}
+
+# ── escalação ────────────────────────────────────────────────────────────────
+cmd_skills() {
+  local ativas s d t=0 b=0
+  ativas="$(expand_skills)"
+
+  echo "titulares — projetadas em .claude/skills, visíveis pro agente:"
+  for s in $ativas; do
+    [ -d "catalog/skills/$s" ] || { echo "  ✗ $s (em active_skills, mas fora do catálogo)"; continue; }
+    echo "  ● $s ($(skill_origin "$s"))"; t=$((t+1))
+  done
+  [ "$t" -eq 0 ] && echo "  (nenhuma)"
+
+  echo "banco — no catálogo, prontas para entrar:"
+  for d in catalog/skills/*/; do
+    [ -d "$d" ] || continue
+    s="$(basename "$d")"
+    case " $(echo $ativas) " in *" $s "*) continue ;; esac
+    echo "  ○ $s ($(skill_origin "$s"))"; b=$((b+1))
+  done
+  [ "$b" -eq 0 ] && echo "  (nenhuma)"
+
+  echo ""
+  echo "  $t titular(es), $b no banco."
+  echo "  ./bin/harness activate <skill>…     promove e projeta"
+  echo "  ./bin/harness deactivate <skill>…   volta pro banco (continua no catálogo)"
+}
+
+# Edita a lista active_skills preservando o resto do arquivo — inclusive os
+# comentários acima da chave, que são onde a decisão de escalação está explicada.
+edit_active() { # $1=add|remove  $@=nomes
+  local mode="$1"; shift
+  [ "$#" -gt 0 ] || { echo "✗ informe ao menos uma skill"; return 2; }
+  command -v python3 >/dev/null 2>&1 || { echo "✗ activate/deactivate precisa de python3"; return 1; }
+  python3 - "$CFG" "$mode" "$@" <<'PY'
+import sys
+cfg, mode, names = sys.argv[1], sys.argv[2], sys.argv[3:]
+lines = open(cfg).read().split("\n")
+
+start = next((i for i, l in enumerate(lines) if l.startswith("active_skills:")), None)
+if start is None:
+    print("✗ chave active_skills não encontrada"); sys.exit(1)
+
+# O bloco termina no primeiro item que não é item. Consumir também os comentários
+# e as linhas em branco seguintes parece inofensivo e não é: o comentário logo
+# abaixo pertence à PRÓXIMA chave, e reescrevê-lo aqui o teleporta para dentro
+# desta lista (medido — o comentário do active_agents subiu para active_skills).
+i, items = start + 1, []
+while i < len(lines):
+    l = lines[i]
+    if l.startswith((" ", "\t")) and l.strip().startswith("-"):
+        items.append(l.strip()[1:].strip().strip('"\'')); i += 1; continue
+    break
+end = i
+
+if "*" in items and mode == "add":
+    print('  active_skills está em "*" — o elenco inteiro já é titular'); sys.exit(0)
+
+mudou = []
+for n in names:
+    if mode == "add":
+        if n not in items: items.append(n); mudou.append(n)
+    else:
+        if n in items: items.remove(n); mudou.append(n)
+
+bloco = ["active_skills:"] + [f"  - {n}" for n in items]
+open(cfg, "w").write("\n".join(lines[:start] + bloco + lines[end:]))
+print("  " + ", ".join(mudou) + (" → titular(es)" if mode == "add" else " → banco") if mudou else "  (nada mudou)")
+PY
+}
+
+cmd_activate() {
+  local s
+  for s in "$@"; do
+    [ -d "catalog/skills/$s" ] || { echo "✗ $s não está em catalog/skills — veja: ./bin/harness skills"; return 1; }
+  done
+  edit_active add "$@" && cmd_sync
+}
+
+cmd_deactivate() { edit_active remove "$@" && cmd_sync; }
+
+# ── doctor ───────────────────────────────────────────────────────────────────
+# O MCP project-scope só sobe depois que a pasta é marcada como confiável no
+# Claude Code — decisão interativa, por máquina, que nenhum arquivo versionado
+# substitui (é o que impede um repo clonado de auto-aprovar os próprios servers).
+# Sem esse diagnóstico, "meu MCP não apareceu" não tem causa visível em lugar nenhum.
+trust_state() {
+  python3 -c '
+import json, os, sys
+try:
+    d = json.load(open(os.path.expanduser("~/.claude.json")))
+    e = d.get("projects", {}).get(sys.argv[1])
+except Exception:
+    sys.exit(0)
+if e is None:
+    print("  confianca da pasta: este diretorio ainda nao foi aberto pelo Claude Code")
+elif e.get("hasTrustDialogAccepted"):
+    print("  confianca da pasta: aceita — os servers do .mcp.json sobem")
+else:
+    print("  confianca da pasta: NAO aceita — os servers ficam pendentes ate voce abrir")
+    print("     o Claude Code neste diretorio e confirmar o dialogo de confianca")
+' "$ROOT" 2>/dev/null || true
+}
+
+cmd_doctor() {
+  local skills agents registry rc=0
+  skills=$(expand_skills); agents=$(yaml_list active_agents)
+  registry="$(yaml_scalar registry workspace/repositories.md)"
+
+  echo "== harness =="
+  echo "  name:     $(yaml_scalar name '(sem nome)')"
+  echo "  tools:    $(yaml_list tools | tr '\n' ' ')"
+
+  echo "== binários =="
+  for b in git claude devin gh npx python3; do
+    if command -v "$b" >/dev/null 2>&1; then echo "  $b: ok"; else echo "  $b: ausente"; fi
+  done
+
+  echo "== skills =="
+  # Contagem por laço, não por `ls | wc`: com pipefail um glob sem match derruba a
+  # atribuição inteira e o doctor morre no meio — que é justamente o que acontece
+  # num harness recém-criado, onde ainda não há nenhuma skill importada.
+  local ncat=0 nvend=0 nact=0 bad="" s d
+  for d in catalog/skills/*/; do [ -d "$d" ] && ncat=$((ncat+1)); done
+  for d in catalog/skills/*/.vendored-from; do [ -f "$d" ] && nvend=$((nvend+1)); done
+  for s in $skills; do
+    if [ -d "catalog/skills/$s" ]; then nact=$((nact+1)); else bad="$bad $s"; rc=1; fi
+  done
+  echo "  catálogo: $ncat ($nvend importada(s), $((ncat-nvend)) do time)"
+  echo "  ativas:   $nact — o resto está no banco (./bin/harness skills)"
+  [ -n "$bad" ] && echo "  em active_skills mas fora do catálogo:$bad"
+
+  echo "== sub-agentes =="
+  [ -z "$agents" ] && echo "  (nenhum)"
+  for a in $agents; do
+    if [ -f "agents/$a/AGENT.md" ]; then echo "  $a: ok"; else echo "  $a: AGENT.md AUSENTE"; rc=1; fi
+  done
+
+  echo "== workspace =="
+  if [ -f "$registry" ]; then
+    # a contagem sai da própria skill (dona da regra de extração de URL); se ela
+    # não estiver no catálogo, o doctor diz isso em vez de reportar zero
+    local ph="" n f
+    for f in catalog/skills/*/scripts/prepare-harness.sh; do [ -f "$f" ] && { ph="$f"; break; }; done
+    if [ -n "$ph" ]; then
+      n="$(bash "$ph" --list 2>/dev/null | grep -c . || true)"
+      echo "  registry: $registry (${n:-0} repo(s) declarado(s))"
+    else
+      echo "  registry: $registry (skill prepare-harness fora do catalog/ — não contei)"
+    fi
+    local dir; dir="$(yaml_scalar workspace_dir workspace)"
+    local c=0; for d in "$dir"/*/; do [ -d "$d/.git" ] && c=$((c+1)); done
+    echo "  clonados: $c"
+  else
+    echo "  registry: $registry AUSENTE"; rc=1
+  fi
+
+  echo "== MCP =="
+  if [ -f .mcp.json ]; then
+    python3 -c 'import json;print("  .mcp.json:", ", ".join(json.load(open(".mcp.json"))["mcpServers"]) or "(vazio)")'
+    trust_state
+  else
+    echo "  .mcp.json: ausente (rode: ./bin/harness sync)"
+  fi
+
+  echo "== placeholders =="
+  # Só conta TODO- em linha ativa: um exemplo comentado é documentação do
+  # template, não pendência — reportá-lo faria o doctor nunca ficar limpo.
+  local todos
+  todos="$(grep -rlE '^[[:space:]]*[^#[:space:]][^#]*TODO-' harness.config.yaml catalog/plugins mcp workspace/*.md AGENTS.md 2>/dev/null || true)"
+  if [ -n "$todos" ]; then
+    echo "  ainda por preencher:"; echo "$todos" | sed 's/^/    /'
+  else
+    echo "  nenhum TODO- pendente"
+  fi
+
+  return $rc
+}
+
+case "${1:-help}" in
+  sync)       cmd_sync ;;
+  doctor)     cmd_doctor ;;
+  skills)     cmd_skills ;;
+  activate)   shift; cmd_activate "$@" ;;
+  deactivate) shift; cmd_deactivate "$@" ;;
+  *) cat <<'USAGE'
+harness — projeta, escala e diagnostica este harness
+
+  ./bin/harness skills              elenco: titulares (.claude/skills) × banco (catalog/skills)
+  ./bin/harness activate <skill>…   promove skills do banco para o time e projeta
+  ./bin/harness deactivate <skill>… devolve ao banco (a skill continua no catálogo)
+  ./bin/harness sync                projeta catalog/, agents/ e mcp/ pros CLIs em tools:
+  ./bin/harness doctor              binários, elenco, workspace, MCP e TODOs
+
+Setup inicial (clona os repos, instala plugins, importa o catálogo de skills):
+  bash catalog/skills/prepare-harness/scripts/prepare-harness.sh
+USAGE
+  ;;
+esac
