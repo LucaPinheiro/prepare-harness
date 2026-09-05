@@ -142,14 +142,19 @@ have() { command -v "$1" >/dev/null 2>&1; }
 extract_repos() {
   [ -f "$REG" ] || return 0
   local filters; filters="$(yaml_list repo_filter | sed '/^$/d')"
-  # Comentário HTML no registry é intenção explícita de "não clonar isto" — vale
-  # tanto pros exemplos do template quanto pra um repo desativado temporariamente.
-  # Só linhas de tabela ou de lista viram clone. Prosa e blockquote ficam de fora
-  # de propósito: o próprio texto do registry cita "git@host:owner/repo.git" como
-  # exemplo de formato, e clonar a documentação seria um jeito bobo de falhar.
+  # Bloco de código (```) e comentário HTML são documentação, não declaração: o
+  # registry explica o próprio formato com uma linha de tabela de exemplo, e sem
+  # pular a fence essa linha vira um repo fantasma que falha no clone — todo
+  # harness recém-criado nascia com uma pendência falsa por causa disso. O
+  # comentário HTML serve ao mesmo fim e também desativa um repo temporariamente.
+  # Fora das fences, só linhas de tabela ou de lista viram clone. Prosa e
+  # blockquote ficam de fora de propósito: o texto do registry cita
+  # "git@host:owner/repo.git" como exemplo, e clonar a documentação seria um jeito
+  # bobo de falhar.
   # O `|| true` importa: com pipefail, um grep sem match derrubaria o script.
   local raw
-  raw="$(sed -e 's/<!--.*-->//g' -e '/<!--/,/-->/d' "$REG" \
+  raw="$(awk 'BEGIN{f=0} /^[[:space:]]*```/{f=!f; next} !f' "$REG" \
+    | sed -e 's/<!--.*-->//g' -e '/<!--/,/-->/d' \
     | grep -E '^[[:space:]]*[|*-]' \
     | sed 's/$/ /' \
     | grep -oE '(https?://[A-Za-z0-9._-]+(:[0-9]+)?/[A-Za-z0-9._~-]+/[A-Za-z0-9._-]+(\.git)?|git@[A-Za-z0-9._-]+:[A-Za-z0-9._~-]+/[A-Za-z0-9._-]+(\.git)?)[^A-Za-z0-9._/~-]' \

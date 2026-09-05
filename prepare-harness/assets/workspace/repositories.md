@@ -18,6 +18,8 @@ Uma linha de tabela por repositório:
 Regras de extração — valem para qualquer host git (GitHub, GitLab, Bitbucket,
 self-hosted), em HTTPS ou SSH (`git@host:org/repo.git`):
 
+- Bloco de código e comentário HTML são ignorados por inteiro — é assim que este
+  arquivo documenta o próprio formato sem que o exemplo acima vire um clone.
 - Só entram URLs em **linhas de tabela ou de lista** (`|`, `-`, `*`). Título,
   prosa e blockquote são ignorados — é por isso que este parágrafo pode citar um
   formato de URL sem virar clone.

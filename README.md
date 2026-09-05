@@ -31,6 +31,20 @@ Importar uma skill **não a ativa**: `catalog/skills/` é o banco de reservas e
 `active_skills` é a escalação, porque cada skill ativa custa contexto em toda
 sessão. `./bin/harness activate <skill>` promove.
 
+## Duas regras que a skill leva a sério
+
+**O registry nunca é adivinhado.** A skill não enumera a conta de ninguém para
+montar opções — nada de `gh repo list`, de org deduzida do e-mail, nem de
+conjuntos prontos ("os 5 mais recentes"). No fim do setup ela faz uma pergunta
+aberta, você manda os links, e ela registra exatamente esses. "Nenhum" é resposta
+final: registry vazio é estado válido e o `prepare-harness.sh` sai com 0.
+
+**O bootstrap não se atualiza sozinho.** Quem entrega a skill é o `scaffold`, que
+a copia para `catalog/skills/` sem marcador de origem — o import é proibido de
+tocar nela. Não coloque este repo em `skill_repos`: o script se recusa a
+sobrescrever a skill de que ele próprio faz parte, e atualizar o bootstrap é um
+`scaffold-harness.sh --force` deliberado.
+
 ## Instalação
 
 ```bash
